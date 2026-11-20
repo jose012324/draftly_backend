@@ -21,6 +21,17 @@ def _authenticate_by_email(request, email, password):
     return authenticate(request, username=user.username, password=password)
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health_view(request):
+    """GET /api/health/ — public liveness probe for uptime monitors.
+
+    Deliberately does not touch the database: a health check should report
+    that the service is up without putting load on the database.
+    """
+    return Response({'status': 'ok', 'service': 'draftly'})
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):

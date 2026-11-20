@@ -4,7 +4,7 @@ import uuid
 
 from channels.testing import WebsocketCommunicator
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Token
+from rest_framework.authtoken.models import Token
 from django.test import TransactionTestCase
 
 from draftly_backend.asgi import application

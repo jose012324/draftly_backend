@@ -6,6 +6,7 @@ The views are intentionally thin — every rule lives in
 """
 
 import json
+import logging
 
 from django.http import FileResponse, HttpResponse
 from django.utils.text import slugify
@@ -36,6 +37,7 @@ from .services import (
     revoke_permission,
     share_document,
     soft_delete_document,
+    store_docx,
     update_document,
 )
 from .tiptap import extract_text
@@ -49,13 +51,23 @@ def _serialize_list(documents, request):
     return DocumentListSerializer(documents, many=True, context={'request': request}).data
 
 
+logger = logging.getLogger(__name__)
+
 DOCX_CONTENT_TYPE = (
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 )
 
 
+def _file_exists(field):
+    """True when a FileField actually points at a file on disk."""
+    return bool(field and field.name and field.storage.exists(field.name))
+
+
 def _file_response(field, content_type, filename):
-    """Send a stored file as a download."""
+    """Send a stored file as a download, or None when it is not on disk."""
+    if not _file_exists(field):
+        return None
+
     field.open('rb')
     response = FileResponse(
         field,
@@ -148,24 +160,48 @@ def document_download(request, pk):
                 status=404,
             )
 
-        return _file_response(
+        response = _file_response(
             document.source_file,
             content_type='application/octet-stream',
             filename=document.source_filename or f'{filename}',
         )
-
-    # The stored Word file.
-    if export_format == 'docx':
-        if document.file:
-            return _file_response(
-                document.file,
-                content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                filename=f'{filename}.docx',
+        if response is None:
+            return Response(
+                {'detail': 'The original upload is no longer available on the server.'},
+                status=404,
             )
+        return response
 
-        # Fall back to a freshly generated file for documents that were created
-        # before the file existed.
-        payload = to_docx(document.content, title=document.title)
+    # The stored Word file. Documents are supposed to have one, but the file
+    # can be missing (old documents, or an ephemeral disk after a restart).
+    # Regenerate it in that case so a download never 404s just because the
+    # physical file disappeared.
+    if export_format == 'docx':
+        if not _file_exists(document.file):
+            try:
+                if store_docx(document):
+                    document.refresh_from_db()
+            except Exception:
+                logger.exception('Could not regenerate the .docx for %s', document.id)
+
+        response = _file_response(
+            document.file,
+            content_type=DOCX_CONTENT_TYPE,
+            filename=f'{filename}.docx',
+        )
+        if response is not None:
+            return response
+
+        # Last resort: stream a freshly generated file without touching the
+        # filesystem (works even when the media directory is read-only).
+        try:
+            payload = to_docx(document.content, title=document.title)
+        except Exception:
+            logger.exception('Could not export %s as .docx', document.id)
+            return Response(
+                {'detail': 'The document could not be exported as a Word file.'},
+                status=500,
+            )
         response = HttpResponse(payload, content_type=DOCX_CONTENT_TYPE)
         response['Content-Disposition'] = f'attachment; filename="{filename}.docx"'
         return response
@@ -295,7 +331,10 @@ def document_import(request):
         )
         document.save(update_fields=['source_file'])
     except Exception:
-        pass
+        # The document itself is already created and usable — never fail the
+        # whole import just because the original could not be stored — but do
+        # not hide the failure either.
+        logger.exception('Could not keep the original upload for %s', document.id)
 
     return Response(_serialize(document, request), status=201)
 

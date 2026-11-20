@@ -456,7 +456,7 @@ class DocumentApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response['Content-Disposition'].endswith('.docx"'))
-        self.assertEqual(response.content[:2], b'PK')
+        self.assertEqual(b''.join(response.streaming_content)[:2], b'PK')
 
     def test_download_of_a_document_without_a_file_generates_one(self):
         self.client.force_authenticate(self.owner)
@@ -465,7 +465,7 @@ class DocumentApiTests(APITestCase):
         response = self.client.get(reverse('document-download', args=[self.document.id]))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content[:2], b'PK')
+        self.assertEqual(b''.join(response.streaming_content)[:2], b'PK')
 
     def test_import_keeps_the_original_upload(self):
         self.client.force_authenticate(self.owner)
@@ -488,7 +488,7 @@ class DocumentApiTests(APITestCase):
             {'format': 'original'},
         )
         self.assertEqual(download.status_code, status.HTTP_200_OK)
-        self.assertIn(b'First line', download.content)
+        self.assertIn(b'First line', b''.join(download.streaming_content))
 
     def test_shared_editor_can_download_the_document(self):
         self.client.force_authenticate(self.editor)

@@ -8,6 +8,7 @@ the result into a response.
 """
 
 import io
+import logging
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
@@ -20,6 +21,7 @@ from .permissions import can_edit, get_role, is_owner
 from .tiptap import empty_document
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 VALID_ROLES = (DocumentPermission.Role.VIEWER, DocumentPermission.Role.EDITOR)
 
@@ -108,7 +110,10 @@ def store_docx(document):
     try:
         payload = to_docx(document.content, title=document.title)
     except Exception:
-        # A broken export must never break the save itself.
+        # A broken export must never break the save itself, but it must not be
+        # silent either — otherwise the document is left without a file and
+        # downloads fail much later with a confusing error.
+        logger.exception('Could not build the .docx file for %s', document.id)
         return False
 
     filename = f'{slugify(document.title) or "document"}.docx'

@@ -185,6 +185,12 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
+
+    # DRF consumes ?format= for its own content negotiation by default. Our
+    # download endpoint uses ?format=docx|md|html|txt|json|original to pick the
+    # export type, so move DRF's override to a different name. Without this,
+    # every export except json is hijacked and returns 404 "Not found.".
+    'URL_FORMAT_OVERRIDE': '_format',
 }
 
 # Primary keys created by Django (auto increment) use BigAutoField.
